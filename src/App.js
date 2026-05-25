@@ -1,13 +1,13 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import * as THREE from "three";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, Grid, Environment } from "@react-three/drei";
+import { STLExporter } from "three-stdlib";
 
 // ==========================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ==========================================
 
-// Инициализация матриц внутренних стенок
 const initWalls = (gridX, gridY) => {
   const hWalls = Array(Math.max(1, gridY - 1))
     .fill()
@@ -18,7 +18,6 @@ const initWalls = (gridX, gridY) => {
   return { hWalls, vWalls };
 };
 
-// Создание 2D-контура со скругленными углами
 const createRoundedRectShape = (width, depth, radius) => {
   const shape = new THREE.Shape();
   const x = -width / 2;
@@ -64,11 +63,39 @@ const createRoundedRectShape = (width, depth, radius) => {
 // КОМПОНЕНТЫ
 // ==========================================
 
-// 1. Компонент 2D-карты ячеек
+// 1. Компонент экспорта в STL
+function Exporter({ trigger }) {
+  const { scene } = useThree();
+
+  useEffect(() => {
+    if (trigger > 0) {
+      const group = scene.getObjectByName("organizer-group");
+      if (group) {
+        const exporter = new STLExporter();
+        const stlString = exporter.parse(group);
+
+        const blob = new Blob([stlString], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.style.display = "none";
+        link.href = url;
+        link.download = "organizer.stl";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    }
+  }, [trigger, scene]);
+
+  return null;
+}
+
+// 2. Компонент 2D-карты ячеек (Orca Dark Theme)
 function CellMap2D({ params, setParams }) {
   const { gridX, gridY, hWalls, vWalls } = params;
 
-  const svgSize = 280;
+  const svgSize = 200;
   const cellW = svgSize / gridX;
   const cellH = svgSize / gridY;
 
@@ -87,22 +114,23 @@ function CellMap2D({ params, setParams }) {
   };
 
   return (
-    <div className="mt-4 flex flex-col items-center">
-      <p className="text-xs text-gray-500 mb-2">
-        Кликайте на линии, чтобы объединить ячейки
+    <div className="mt-3 flex flex-col items-center">
+      <p className="text-[10px] text-[#888] mb-2 text-center leading-tight">
+        Кликните на линии для объединения
       </p>
       <svg
         width={svgSize}
         height={svgSize}
-        className="bg-gray-50 rounded-sm shadow-inner"
+        className="bg-[#1e1e1e] rounded-sm border border-[#444]"
       >
+        {/* Внешняя рамка */}
         <rect
           x="0"
           y="0"
           width={svgSize}
           height={svgSize}
           fill="none"
-          stroke="#3b82f6"
+          stroke="#555"
           strokeWidth="4"
         />
 
@@ -122,8 +150,8 @@ function CellMap2D({ params, setParams }) {
                   y1={y}
                   x2={x2}
                   y2={y}
-                  stroke={isActive ? "#64748b" : "#cbd5e1"}
-                  strokeWidth={isActive ? "3" : "1"}
+                  stroke={isActive ? "#10b981" : "#333"}
+                  strokeWidth={isActive ? "2" : "1"}
                   strokeDasharray={isActive ? "none" : "4 4"}
                 />
                 <line
@@ -133,7 +161,7 @@ function CellMap2D({ params, setParams }) {
                   y2={y}
                   stroke="transparent"
                   strokeWidth="16"
-                  className="group-hover:stroke-red-400/30 transition-colors"
+                  className="group-hover:stroke-[#10b981]/30 transition-colors"
                 />
               </g>
             );
@@ -156,8 +184,8 @@ function CellMap2D({ params, setParams }) {
                   y1={y1}
                   x2={x}
                   y2={y2}
-                  stroke={isActive ? "#64748b" : "#cbd5e1"}
-                  strokeWidth={isActive ? "3" : "1"}
+                  stroke={isActive ? "#10b981" : "#333"}
+                  strokeWidth={isActive ? "2" : "1"}
                   strokeDasharray={isActive ? "none" : "4 4"}
                 />
                 <line
@@ -167,7 +195,7 @@ function CellMap2D({ params, setParams }) {
                   y2={y2}
                   stroke="transparent"
                   strokeWidth="16"
-                  className="group-hover:stroke-red-400/30 transition-colors"
+                  className="group-hover:stroke-[#10b981]/30 transition-colors"
                 />
               </g>
             );
@@ -178,7 +206,7 @@ function CellMap2D({ params, setParams }) {
   );
 }
 
-// 2. Компонент 3D-модели
+// 3. Компонент 3D-модели (Серый филамент)
 function OrganizerModel({ params }) {
   const { bottomGeo, wallsGeo, innerWallsData } = useMemo(() => {
     const {
@@ -200,14 +228,12 @@ function OrganizerModel({ params }) {
     const outerWallThickness = outerWallLines * lineWidth;
     const innerWallThickness = innerWallLines * lineWidth;
 
-    // --- Дно ---
     const outerShape = createRoundedRectShape(width, depth, cornerRadius);
     const bottomGeometry = new THREE.ExtrudeGeometry(outerShape, {
       depth: bottomThickness,
       bevelEnabled: false,
     });
 
-    // --- Внешние стенки ---
     const wallsShape = createRoundedRectShape(width, depth, cornerRadius);
     const innerRadius = Math.max(0, cornerRadius - outerWallThickness);
     const innerHole = createRoundedRectShape(
@@ -221,50 +247,60 @@ function OrganizerModel({ params }) {
       bevelEnabled: false,
     });
 
-    // --- Внутренние стенки (Ячейки) ---
     const innerWidth = width - 2 * outerWallThickness;
     const innerDepth = depth - 2 * outerWallThickness;
-    const cellW = innerWidth / gridX;
-    const cellD = innerDepth / gridY;
+
+    const totalInnerWallWidth = (gridX - 1) * innerWallThickness;
+    const totalInnerWallDepth = (gridY - 1) * innerWallThickness;
+
+    const cellW = (innerWidth - totalInnerWallWidth) / gridX;
+    const cellD = (innerDepth - totalInnerWallDepth) / gridY;
+
+    const x0 = -innerWidth / 2;
+    const y0 = -innerDepth / 2;
     const zPos = bottomThickness + dividerHeight / 2;
 
     const innerWalls = [];
 
-    // Горизонтальные разделители
     hWalls.forEach((row, r) => {
       row.forEach((isActive, c) => {
         if (isActive) {
+          const yCenter =
+            y0 +
+            (r + 1) * cellD +
+            r * innerWallThickness +
+            innerWallThickness / 2;
+          const cellLeft = x0 + c * (cellW + innerWallThickness);
+          const extLeft = c === 0 ? 0 : innerWallThickness / 2;
+          const extRight = c === gridX - 1 ? 0 : innerWallThickness / 2;
+          const wallWidth = cellW + extLeft + extRight;
+          const xCenter = cellLeft - extLeft + wallWidth / 2;
+
           innerWalls.push({
-            position: [
-              -innerWidth / 2 + c * cellW + cellW / 2,
-              -innerDepth / 2 + (r + 1) * cellD,
-              zPos,
-            ],
-            args: [
-              cellW + innerWallThickness,
-              innerWallThickness,
-              dividerHeight,
-            ],
+            position: [xCenter, yCenter, zPos],
+            args: [wallWidth, innerWallThickness, dividerHeight],
           });
         }
       });
     });
 
-    // Вертикальные разделители
     vWalls.forEach((row, r) => {
       row.forEach((isActive, c) => {
         if (isActive) {
+          const xCenter =
+            x0 +
+            (c + 1) * cellW +
+            c * innerWallThickness +
+            innerWallThickness / 2;
+          const cellBottom = y0 + r * (cellD + innerWallThickness);
+          const extBottom = r === 0 ? 0 : innerWallThickness / 2;
+          const extTop = r === gridY - 1 ? 0 : innerWallThickness / 2;
+          const wallDepth = cellD + extBottom + extTop;
+          const yCenter = cellBottom - extBottom + wallDepth / 2;
+
           innerWalls.push({
-            position: [
-              -innerWidth / 2 + (c + 1) * cellW,
-              -innerDepth / 2 + r * cellD + cellD / 2,
-              zPos,
-            ],
-            args: [
-              innerWallThickness,
-              cellD + innerWallThickness,
-              dividerHeight,
-            ],
+            position: [xCenter, yCenter, zPos],
+            args: [innerWallThickness, wallDepth, dividerHeight],
           });
         }
       });
@@ -277,28 +313,31 @@ function OrganizerModel({ params }) {
     };
   }, [params]);
 
-  return (
-    <group rotation={[-Math.PI / 2, 0, 0]}>
-      <mesh geometry={bottomGeo}>
-        <meshStandardMaterial color="#e2e8f0" roughness={0.7} />
-      </mesh>
-      <mesh geometry={wallsGeo} position={[0, 0, params.bottomThickness]}>
-        <meshStandardMaterial color="#cbd5e1" roughness={0.7} />
-      </mesh>
+  // Цвет матового серого филамента
+  const filamentMaterial = (
+    <meshStandardMaterial color="#9ca3af" roughness={0.6} metalness={0.1} />
+  );
 
-      {/* Рендер внутренних стенок */}
+  return (
+    <group name="organizer-group" rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh geometry={bottomGeo}>{filamentMaterial}</mesh>
+      <mesh geometry={wallsGeo} position={[0, 0, params.bottomThickness]}>
+        {filamentMaterial}
+      </mesh>
       {innerWallsData.map((wall, i) => (
         <mesh key={i} position={wall.position}>
           <boxGeometry args={wall.args} />
-          <meshStandardMaterial color="#94a3b8" roughness={0.7} />
+          {filamentMaterial}
         </mesh>
       ))}
     </group>
   );
 }
 
-// 3. Главный компонент приложения
+// 4. Главный компонент приложения
 export default function App() {
+  const [exportTrigger, setExportTrigger] = useState(0);
+
   const [params, setParams] = useState({
     lineWidth: 0.42,
     width: 200,
@@ -321,12 +360,10 @@ export default function App() {
 
     setParams((prev) => {
       const newParams = { ...prev, [name]: numValue };
-
       const maxDividerHeight = newParams.height - newParams.bottomThickness;
       if (newParams.dividerHeight > maxDividerHeight) {
         newParams.dividerHeight = maxDividerHeight;
       }
-
       if (name === "gridX" || name === "gridY") {
         const safeX = Math.max(1, Math.floor(newParams.gridX));
         const safeY = Math.max(1, Math.floor(newParams.gridY));
@@ -336,14 +373,16 @@ export default function App() {
         newParams.hWalls = newWalls.hWalls;
         newParams.vWalls = newWalls.vWalls;
       }
-
       return newParams;
     });
   };
 
+  // Ультра-компактный инпут в стиле Orca Slicer
   const InputField = ({ label, name, step = 1, min = 0, max }) => (
-    <div className="flex justify-between items-center mb-2">
-      <label className="text-sm text-gray-700 font-medium">{label}</label>
+    <div className="flex justify-between items-center mb-[2px] hover:bg-[#333] px-1 py-0.5 rounded transition-colors">
+      <label className="text-[11px] text-[#cccccc] cursor-pointer select-none">
+        {label}
+      </label>
       <input
         type="number"
         name={name}
@@ -352,100 +391,118 @@ export default function App() {
         step={step}
         min={min}
         max={max}
-        className="w-20 p-1 border border-gray-300 rounded text-right text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+        className="w-14 h-5 bg-[#1e1e1e] border border-[#444] rounded-sm text-right text-[11px] text-[#eee] focus:border-[#10b981] focus:ring-1 focus:ring-[#10b981] outline-none transition-all px-1"
       />
     </div>
   );
 
   return (
-    <div className="flex h-screen w-screen bg-gray-50 overflow-hidden font-sans">
-      {/* ЛЕВАЯ ПАНЕЛЬ */}
-      <div className="w-80 md:w-96 bg-white shadow-xl z-10 flex flex-col h-full">
-        <div className="p-5 bg-blue-600 text-white">
-          <h1 className="text-xl font-bold">Конфигуратор Органайзера</h1>
+    <>
+      {/* Стили для темного скроллбара */}
+      <style>{`
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #252526; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+      `}</style>
+
+      <div className="flex h-screen w-screen bg-[#1e1e1e] overflow-hidden font-sans select-none">
+        {/* ЛЕВАЯ ПАНЕЛЬ (Темная, компактная) */}
+        <div className="w-72 bg-[#252526] border-r border-[#3e3e42] z-10 flex flex-col h-full shadow-2xl">
+          <div className="p-3 bg-[#2d2d30] border-b border-[#3e3e42] flex-shrink-0">
+            <h1 className="text-[13px] font-bold text-[#eee] tracking-wide">
+              Органайзер
+            </h1>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2 space-y-4">
+            <section>
+              <h2 className="text-[10px] font-bold text-[#888] mb-1 uppercase tracking-wider px-1">
+                Печать
+              </h2>
+              <InputField
+                label="Ширина линии (мм)"
+                name="lineWidth"
+                step={0.01}
+              />
+            </section>
+
+            <section>
+              <h2 className="text-[10px] font-bold text-[#888] mb-1 uppercase tracking-wider px-1">
+                Габариты
+              </h2>
+              <InputField label="Ширина - X (мм)" name="width" />
+              <InputField label="Глубина - Y (мм)" name="depth" />
+              <InputField label="Высота - Z (мм)" name="height" />
+              <InputField
+                label="Толщина дна (мм)"
+                name="bottomThickness"
+                step={0.1}
+              />
+              <InputField label="Внеш. стенки (линий)" name="outerWallLines" />
+              <InputField label="Скругление (мм)" name="cornerRadius" />
+            </section>
+
+            <section>
+              <h2 className="text-[10px] font-bold text-[#888] mb-1 uppercase tracking-wider px-1">
+                Ячейки
+              </h2>
+              <InputField label="Кол-во по X (колонок)" name="gridX" />
+              <InputField label="Кол-во по Y (строк)" name="gridY" />
+              <InputField label="Внутр. стенки (линий)" name="innerWallLines" />
+              <InputField
+                label="Высота разделителей"
+                name="dividerHeight"
+                step={0.1}
+                max={params.height - params.bottomThickness}
+              />
+
+              <CellMap2D params={params} setParams={setParams} />
+            </section>
+          </div>
+
+          <div className="p-3 border-t border-[#3e3e42] bg-[#252526] flex-shrink-0">
+            <button
+              onClick={() => setExportTrigger((prev) => prev + 1)}
+              className="w-full py-1.5 bg-[#10b981] hover:bg-[#0ea5e9] text-white text-[12px] font-bold rounded-sm transition-colors shadow-sm flex justify-center items-center gap-2"
+            >
+              Экспорт в STL
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-6">
-          <section>
-            <h2 className="text-lg font-semibold text-gray-800 mb-3 border-b pb-1">
-              1. Параметры 3D печати
-            </h2>
-            <InputField
-              label="Ширина линии (мм)"
-              name="lineWidth"
-              step={0.01}
-            />
-          </section>
+        {/* ПРАВАЯ ПАНЕЛЬ (3D Viewport) */}
+        <div className="flex-1 relative bg-[#1a1a1a]">
+          <Canvas camera={{ position: [150, 150, 150], fov: 50 }}>
+            {/* Темный фон сцены */}
+            <color attach="background" args={["#1a1a1a"]} />
 
-          <section>
-            <h2 className="text-lg font-semibold text-gray-800 mb-3 border-b pb-1">
-              2. Габариты коробки
-            </h2>
-            <InputField label="Ширина - X (мм)" name="width" />
-            <InputField label="Глубина - Y (мм)" name="depth" />
-            <InputField label="Высота - Z (мм)" name="height" />
-            <InputField
-              label="Толщина дна (мм)"
-              name="bottomThickness"
-              step={0.1}
+            <ambientLight intensity={0.4} />
+            <directionalLight
+              position={[100, 200, 100]}
+              intensity={1.2}
+              castShadow
             />
-            <InputField label="Внешние стенки (линий)" name="outerWallLines" />
-            <InputField label="Радиус скругления (мм)" name="cornerRadius" />
-          </section>
+            <Environment preset="city" />
+            <OrbitControls makeDefault />
 
-          <section>
-            <h2 className="text-lg font-semibold text-gray-800 mb-3 border-b pb-1">
-              3. Параметры ячеек
-            </h2>
-            <InputField label="Кол-во по X (колонок)" name="gridX" />
-            <InputField label="Кол-во по Y (строк)" name="gridY" />
-            <InputField
-              label="Внутренние стенки (линий)"
-              name="innerWallLines"
-            />
-            <InputField
-              label="Высота разделителей (мм)"
-              name="dividerHeight"
-              step={0.1}
-              max={params.height - params.bottomThickness}
+            {/* Темная сетка */}
+            <Grid
+              infiniteGrid
+              fadeDistance={800}
+              sectionColor="#444"
+              cellColor="#2a2a2a"
             />
 
-            <CellMap2D params={params} setParams={setParams} />
-          </section>
-        </div>
+            <OrganizerModel params={params} />
+            <Exporter trigger={exportTrigger} />
+          </Canvas>
 
-        <div className="p-5 border-t bg-gray-50">
-          <button className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-md">
-            Экспорт в STL
-          </button>
+          <div className="absolute bottom-4 right-4 bg-[#252526]/80 border border-[#444] px-3 py-1.5 rounded-sm shadow-lg text-[10px] text-[#aaa] pointer-events-none backdrop-blur-sm">
+            ЛКМ - вращение | ПКМ - перемещение | Колесико - зум
+          </div>
         </div>
       </div>
-
-      {/* ПРАВАЯ ПАНЕЛЬ */}
-      <div className="flex-1 relative bg-gray-100">
-        <Canvas camera={{ position: [150, 150, 150], fov: 50 }}>
-          <ambientLight intensity={0.5} />
-          <directionalLight
-            position={[100, 200, 100]}
-            intensity={1}
-            castShadow
-          />
-          <Environment preset="city" />
-          <OrbitControls makeDefault />
-          <Grid
-            infiniteGrid
-            fadeDistance={1000}
-            sectionColor="#cccccc"
-            cellColor="#eeeeee"
-          />
-
-          <OrganizerModel params={params} />
-        </Canvas>
-
-        <div className="absolute bottom-6 right-6 bg-white/80 px-4 py-2 rounded-md shadow text-sm text-gray-600 pointer-events-none">
-          ЛКМ - вращение | ПКМ - перемещение | Колесико - зум
-        </div>
-      </div>
-    </div>
+    </>
   );
 }
