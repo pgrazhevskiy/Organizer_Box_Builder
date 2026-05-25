@@ -8,7 +8,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-scripts": "^5.0.0",
-    "three": "0.184.0"
+    "three": "0.184.0",
+    "@react-three/fiber": "9.6.1",
+    "@react-three/drei": "10.7.7"
   },
   "devDependencies": {
     "@types/react": "19.0.0",
